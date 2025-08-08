@@ -1,6 +1,9 @@
-fastapi
-uvicorn[standard]
+Flask         # 웹 프레임워크 (필수)
+gunicorn      # 프로덕션 웹 서버 (필수)
+Flask-Cors    # CORS 에러 방지를 위해 강력 추천
+
+# --- 데이터 분석 및 머신러닝 라이브러리 ---
 pandas
 scikit-learn
 joblib
-gunicorn
+numpy
