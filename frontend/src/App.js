@@ -1,132 +1,45 @@
 // src/App.js
+// This file creates the overall page layout (gray background, centered white card).
 
-import React, { useState } from "react";
-import axios from "axios";
+import React, { useState } from 'react';
+import LoanPurposeSelector from './components/LoanPurposeSelector';
+// We will add other components here later
+// import LoanAmountInput from './components/LoanAmountInput';
+// import ResultDisplay from './components/ResultDisplay';
 
-function App() {
-  // initialize form state
-  const [form, setForm] = useState({
-    on_time_rate: 1,
-    utilization_rate: 0,
-    oldest_account_months: 0,
-    recent_inquiries: 0,
-    num_account_types: 1,
-    desired_loan_term: 12,
-  });
-  // store API response
-  const [result, setResult] = useState(null);
+export default function App() {
+    const [step, setStep] = useState(1);
+    const [formData, setFormData] = useState({
+        purpose: 'debt_consolidation',
+        // other fields will be here
+    });
 
-  // handle input changes
-  const handleChange = (e) => {
-    const { name, value } = e.target;
-    setForm((prev) => ({ ...prev, [name]: parseFloat(value) }));
-  };
+    const handleNext = (data) => {
+        setFormData(prevData => ({ ...prevData, ...data }));
+        setStep(prevStep => prevStep + 1);
+    };
+    
+    // In a real multi-step form, we would use a switch statement here
+    // For now, we are just showing the first step.
 
-  // call predict endpoint
-  const handleSubmit = async () => {
-    try {
-      const res = await axios.post("http://127.0.0.1:8000/predict", form);
-      setResult(res.data);
-    } catch (err) {
-      console.error(err);
-      alert("Error fetching prediction");
-    }
-  };
+    return (
+        // These classes create the main layout:
+        // - bg-gray-50: Light gray background
+        // - min-h-screen: Full screen height
+        // - flex items-center justify-center: Vertically and horizontally centers the content
+        <main className="bg-gray-50 min-h-screen flex items-center justify-center p-4">
+            
+            {/* These classes create the white card in the middle: */}
+            {/* - w-full max-w-lg: Sets the width and a max-width */}
+            {/* - p-8: Adds padding inside the card */}
+            {/* - bg-white: White background color */}
+            {/* - rounded-xl shadow-md: Creates rounded corners and a subtle shadow */}
+            <div className="w-full max-w-lg p-8 bg-white rounded-xl shadow-md">
+                
+                {/* We will render the correct step here. For now, it's always LoanPurposeSelector */}
+                <LoanPurposeSelector onNext={handleNext} />
 
-  return (
-    <div style={{ padding: 20, maxWidth: 600, margin: "0 auto" }}>
-      <h1>Loan Approval Predictor</h1>
-
-      {/* Payment History */}
-      <label>On-Time Rate: {form.on_time_rate}</label>
-      <input
-        type="range"
-        name="on_time_rate"
-        min="0"
-        max="1"
-        step="0.01"
-        value={form.on_time_rate}
-        onChange={handleChange}
-      />
-
-      {/* Utilization */}
-      <label>Utilization Rate: {form.utilization_rate}</label>
-      <input
-        type="range"
-        name="utilization_rate"
-        min="0"
-        max="1"
-        step="0.01"
-        value={form.utilization_rate}
-        onChange={handleChange}
-      />
-
-      {/* Credit History Length */}
-      <label>
-        Oldest Account (months):
-        <input
-          type="number"
-          name="oldest_account_months"
-          value={form.oldest_account_months}
-          onChange={handleChange}
-        />
-      </label>
-
-      {/* New Credit */}
-      <label>
-        Recent Inquiries:
-        <input
-          type="number"
-          name="recent_inquiries"
-          value={form.recent_inquiries}
-          onChange={handleChange}
-        />
-      </label>
-
-      {/* Credit Mix */}
-      <label>
-        Account Types:
-        <input
-          type="number"
-          name="num_account_types"
-          min="1"
-          max="5"
-          value={form.num_account_types}
-          onChange={handleChange}
-        />
-      </label>
-
-      {/* Desired Loan Term */}
-      <label>
-        Desired Loan Term (months):
-        <input
-          type="number"
-          name="desired_loan_term"
-          value={form.desired_loan_term}
-          onChange={handleChange}
-        />
-      </label>
-
-      <button onClick={handleSubmit} style={{ marginTop: 20 }}>
-        Predict Approval
-      </button>
-
-      {result && (
-        <div style={{ marginTop: 30 }}>
-          <h2>Estimated Credit Score: {result.credit_score}</h2>
-          <h3>Recommendations</h3>
-          <ul>
-            {result.recommendations.map((r) => (
-              <li key={r.product}>
-                <strong>{r.product}</strong>:{" "}
-                {(r.approval_probability * 100).toFixed(1)}%
-              </li>
-            ))}
-          </ul>
-        </div>
-      )}
-    </div>
-  );
+            </div>
+        </main>
+    );
 }
-
-export default App;
