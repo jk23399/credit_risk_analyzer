@@ -47,7 +47,7 @@ export default function LoanTermSelector({ onNext, onBack }) {
         <div className="flex items-center gap-2">
           <FaRegCheckCircle /> <span>No impact to your credit score</span>
         </div>
-      </div>ㅁ
+      </div>
 
       {onBack && (
         <div className="mt-4">
