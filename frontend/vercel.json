@@ -2,10 +2,16 @@
     "headers": [
       {
         "source": "/index.html",
-        "headers": [{ "key": "Cache-Control", "value": "no-store" }]
+        "headers": [
+          { "key": "Cache-Control", "value": "no-store" }
+        ]
       }
     ],
     "rewrites": [
-      { "source": "/api/:path*", "destination": "https://<백엔드-프로덕션-도메인>/:path*" }
+      {
+        "source": "/api/:path*",
+        "destination": "https://credit-risk-analyzer-zef4.onrender.com/:path*"
+      }
     ]
   }
+  
