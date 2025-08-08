@@ -22,9 +22,7 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
 
-  // Vercel/Render 배포 환경에서는 환경 변수를 사용하고,
-  // 로컬 개발 환경에서는 기존의 localhost 주소를 사용합니다.
-  const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
+  const API_PATH = '/api/predict';
 
   const normalizePurpose = (p) => (p || 'other').replace(/^purpose_/, '');
   const toInt = (v, d = 0) => {
@@ -47,31 +45,36 @@ export default function App() {
     console.log('[submit] payload →', payload);
 
     try {
-      const resp = await fetch(`${API_URL}/predict`, {
+      const resp = await fetch(API_PATH, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
       });
-      const text = await resp.text();
-      console.log('[submit] status', resp.status, 'raw', text);
-      const data = (() => { try { return JSON.parse(text); } catch { return { error: 'Invalid JSON', raw: text }; } })();
-      if (!resp.ok) throw new Error(data?.error || `Server ${resp.status}`);
+
+      const raw = await resp.text();
+      console.log('[submit] status', resp.status, 'raw', raw);
+
+      let data;
+      try { data = JSON.parse(raw); } catch { data = { error: 'Invalid JSON', raw }; }
+
+      if (!resp.ok) {
+        throw new Error(data?.error || `HTTP ${resp.status} ${resp.statusText}`);
+      }
 
       setResult(data);
     } catch (e) {
-      console.error(e);
-      setErr(e.message || 'Request failed');
+      console.error('[submit] ERROR:', e);
+      setErr(e.message || 'Failed to fetch');
       setResult({ error: 'Failed to connect to the prediction server.' });
     } finally {
       setLoading(false);
-      setStep(6);
+      setStep(6); 
     }
   }
 
   const handleNext = (data) => {
     const merged = { ...formData, ...data };
     setFormData(merged);
-
     if (step === 5) {
       submitForDecision(merged);
     } else {
@@ -144,7 +147,6 @@ export default function App() {
     <>
       <Header />
       <SiteNotice />
-
       <main className="bg-gray-50 min-h-[calc(100vh-56px)] flex items-center justify-center p-4">
         <div className="w-full max-w-2xl p-8 bg-white rounded-xl shadow-md">
           {err && (
