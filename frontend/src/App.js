@@ -22,6 +22,10 @@ export default function App() {
   const [err, setErr] = useState(null);
   const [loading, setLoading] = useState(false);
 
+  // Vercel/Render 배포 환경에서는 환경 변수를 사용하고,
+  // 로컬 개발 환경에서는 기존의 localhost 주소를 사용합니다.
+  const API_URL = process.env.REACT_APP_API_URL || 'http://127.0.0.1:5000';
+
   const normalizePurpose = (p) => (p || 'other').replace(/^purpose_/, '');
   const toInt = (v, d = 0) => {
     const n = parseInt(v, 10);
@@ -43,7 +47,7 @@ export default function App() {
     console.log('[submit] payload →', payload);
 
     try {
-      const resp = await fetch('http://127.0.0.1:5000/predict', {
+      const resp = await fetch(`${API_URL}/predict`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(payload),
@@ -68,7 +72,6 @@ export default function App() {
     const merged = { ...formData, ...data };
     setFormData(merged);
 
-    // 마지막 입력(step 5)에서 실제 백엔드 호출
     if (step === 5) {
       submitForDecision(merged);
     } else {
