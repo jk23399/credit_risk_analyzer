@@ -7,18 +7,22 @@ from flask_cors import CORS
 app = Flask(__name__)
 
 # --- CORS Settings -----------------------------------------------------------
+# Explicitly allow the Vercel frontend URL.
 CORS(app, origins=["https://credit-risk-analyzer-omega.vercel.app"])
 
 
-# --- Model Loading (Path Corrected) ------------------------------------------
+# --- Model Loading (Path Corrected - FINAL) ----------------------------------
 try:
-    # The server's working directory is already 'backend', so we remove 'backend/' from the path.
+    # Render's 'Root Directory' is set to 'backend', so the working directory
+    # for this script is already inside the 'backend' folder.
+    # Therefore, the path to the models is simply "models/filename.joblib".
     approval_model = joblib.load("models/low_cohort_approval_model.v171.joblib")
     interest_model = joblib.load("models/interest_rate_model.v171.joblib")
     print("Models loaded successfully.")
 except Exception as e:
     approval_model = None
     interest_model = None
+    # This log is crucial for debugging path issues.
     print(f"CRITICAL: Model load error: {e}")
 
 
@@ -37,6 +41,7 @@ APPROVAL_THRESHOLD = 0.42
 @app.route("/predict", methods=["POST"])
 def predict():
     if approval_model is None or interest_model is None:
+        # This is the error message the user is seeing.
         return jsonify({"error": "Models are not loaded on the server. Check server logs."}), 500
 
     try:
