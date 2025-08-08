@@ -1,124 +1,127 @@
-# --- 1. Import Libraries ---
-import pandas as pd
-import joblib
+# app.py
 from flask import Flask, request, jsonify
+import joblib
+import pandas as pd
 from flask_cors import CORS
 
-# --- 2. Create Flask App ---
 app = Flask(__name__)
-CORS(app) # Enable CORS for all routes
 
-# --- 3. Load BOTH pre-trained models ---
+# ── CORS (개발용: 모든 오리진 허용) ─────────────────────────────────────────────
+CORS(app, resources={r"/*": {"origins": "*"}}, supports_credentials=False)
+
+@app.after_request
+def add_cors_headers(resp):
+    # 프리플라이트와 실제 요청 모두에 헤더 강제 주입
+    resp.headers["Access-Control-Allow-Origin"] = request.headers.get("Origin", "*")
+    resp.headers["Vary"] = "Origin"
+    resp.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    resp.headers["Access-Control-Allow-Methods"] = "GET,POST,OPTIONS"
+    return resp
+
+# ── 모델 로드 (repacked for sklearn 1.7.1) ─────────────────────────────────────
 try:
-    approval_model = joblib.load('models/low_cohort_approval_model.joblib')
-    interest_rate_model = joblib.load('models/interest_rate_model.joblib')
-    print("All models loaded successfully.")
-except FileNotFoundError as e:
+    approval_model = joblib.load("models/low_cohort_approval_model.v171.joblib")
+    interest_model = joblib.load("models/interest_rate_model.v171.joblib")
+    print("Approval model features:", getattr(approval_model, "feature_names_in_", None))
+    print("Interest model features:", getattr(interest_model, "feature_names_in_", None))
+except Exception as e:
     approval_model = None
-    interest_rate_model = None
-    print(f"WARNING: Model file not found ({e}). The /predict endpoint will not work.")
+    interest_model = None
+    print("Model load error:", e)
 
-# --- 4. Define the column lists for BOTH models ---
-# Columns for the Low-Cohort Approval Model
-APPROVAL_MODEL_COLUMNS = [
-    'cibil_score', 'loan_term', 'income_annum', 'loan_amount'
-]
+# ── 유틸 ────────────────────────────────────────────────────────────────────────
+def fico_to_grade(score):
+    """FICO → grade (숫자 클수록 더 좋은 등급)"""
+    s = int(score or 0)
+    if s >= 740: return 7
+    if s >= 670: return 6
+    if s >= 580: return 5
+    return 4
 
-# Columns for the Interest Rate Prediction Model
-INTEREST_RATE_MODEL_COLUMNS = [
-    'loan_amnt', 'term', 'grade', 'annual_inc', 'fico_score',
-    'purpose_credit_card', 'purpose_debt_consolidation', 'purpose_educational',
-    'purpose_home_improvement', 'purpose_house', 'purpose_major_purchase',
-    'purpose_medical', 'purpose_moving', 'purpose_other', 'purpose_renewable_energy',
-    'purpose_small_business', 'purpose_vacation', 'purpose_wedding'
-]
+APPROVAL_THRESHOLD = 0.42  # 필요시 조정
 
-# Define the optimal threshold found in the notebook for the approval model
-APPROVAL_THRESHOLD = 0.42 
-
-
-# --- 5. Define the API endpoint for prediction ---
-@app.route('/predict', methods=['POST'])
+# ── 엔드포인트 ─────────────────────────────────────────────────────────────────
+@app.route("/predict", methods=["POST", "OPTIONS"])
 def predict():
-    # Check if models are loaded
-    if not approval_model or not interest_rate_model:
-        return jsonify({'error': 'Models are not loaded. Check server logs.'}), 500
+    # CORS preflight
+    if request.method == "OPTIONS":
+        return ("", 204)
 
-    # Get the JSON data sent from the client
-    user_data = request.get_json()
-    
-    # --- 6. The CORE 2-Tier Approval Logic ---
-    is_approved = False
-    approval_status = ""
-    
-    # Tier 1: High Credit Score check
-    if user_data['fico_score'] >= 580:
-        is_approved = True
-        approval_status = "Approved (High Credit Score)"
-    
-    # Tier 2: Low Credit Score special assessment USING THE TRAINED MODEL
-    else:
-        print("User has low credit score. Running specialized approval model...")
-        
-        approval_input_data = {
-            'cibil_score': user_data.get('fico_score', 0),
-            'loan_term': user_data.get('term', 36),
-            'income_annum': user_data.get('annual_inc', 0),
-            'loan_amount': user_data.get('loan_amnt', 0)
-        }
-        
-        approval_input_df = pd.DataFrame([approval_input_data])[APPROVAL_MODEL_COLUMNS]
-        
-        # Predict the PROBABILITY of approval using the model
-        approval_probability = approval_model.predict_proba(approval_input_df)[:, 1][0]
-        
-        print(f"Approval probability: {approval_probability:.4f}, Threshold: {APPROVAL_THRESHOLD}")
+    if approval_model is None or interest_model is None:
+        return jsonify({"error": "Models not loaded"}), 500
 
-        # Compare the probability against our optimal threshold
-        if approval_probability >= APPROVAL_THRESHOLD:
-            is_approved = True
-            approval_status = "Approved by Specialized Model"
-        else:
-            is_approved = False
-            approval_status = "Rejected by Specialized Model"
+    try:
+        data = request.get_json() or {}
 
-    # --- 7. Handle the final outcome ---
-    if not is_approved:
+        # ---------- 1) 승인 모델 ----------
+        approval_features = pd.DataFrame([{
+            "cibil_score": data.get("fico_score"),
+            "loan_term":   data.get("term"),
+            "income_annum": data.get("annual_inc"),
+            "loan_amount":  data.get("loan_amnt"),
+        }])[["cibil_score", "loan_term", "income_annum", "loan_amount"]]
+
+        if not hasattr(approval_model, "predict_proba"):
+            return jsonify({"error": "approval_model has no predict_proba"}), 500
+
+        approval_prob = float(approval_model.predict_proba(approval_features)[0][1])
+        if approval_prob < APPROVAL_THRESHOLD:
+            return jsonify({
+                "status": "Rejected",
+                "approval_probability": round(approval_prob, 4),
+                "reason": "Rejected by approval model",
+            }), 200
+
+        # ---------- 2) 이자율 모델 ----------
+        all_purposes = [
+            "purpose_credit_card", "purpose_debt_consolidation", "purpose_educational",
+            "purpose_home_improvement", "purpose_house", "purpose_major_purchase",
+            "purpose_medical", "purpose_moving", "purpose_other",
+            "purpose_renewable_energy", "purpose_small_business",
+            "purpose_vacation", "purpose_wedding",
+        ]
+        purpose_data = {p: 0 for p in all_purposes}
+        purpose_key = f"purpose_{data.get('purpose', 'other')}"
+        if purpose_key in purpose_data:
+            purpose_data[purpose_key] = 1  # 알 수 없는 값은 전부 0 유지
+
+        grade_val = fico_to_grade(data.get("fico_score"))
+
+        interest_features = pd.DataFrame([{
+            "loan_amnt":  data.get("loan_amnt"),
+            "term":       data.get("term"),
+            "grade":      grade_val,
+            "annual_inc": data.get("annual_inc"),
+            **purpose_data,
+            "fico_score": data.get("fico_score"),
+        }])[[
+            "loan_amnt", "term", "grade", "annual_inc",
+            "purpose_credit_card", "purpose_debt_consolidation", "purpose_educational",
+            "purpose_home_improvement", "purpose_house", "purpose_major_purchase",
+            "purpose_medical", "purpose_moving", "purpose_other",
+            "purpose_renewable_energy", "purpose_small_business",
+            "purpose_vacation", "purpose_wedding",
+            "fico_score",
+        ]]
+
+        rate = float(interest_model.predict(interest_features)[0])
+
         return jsonify({
-            'status': 'Rejected',
-            'reason': approval_status
-        })
+            "status": "Approved",
+            "approval_probability": round(approval_prob, 4),
+            "predicted_interest_rate": round(rate, 2),
+            "loan_amount": int(data.get("loan_amnt") or 0),
+            "term": int(data.get("term") or 0),
+        }), 200
 
-    # --- 8. If approved, proceed to Interest Rate Prediction ---
-    print("Status: Approved. Predicting interest rate...")
-    
-    # Prepare data for the interest rate model
-    input_df = pd.DataFrame(columns=INTEREST_RATE_MODEL_COLUMNS)
-    input_df.loc[0] = 0
-    
-    input_df['loan_amnt'] = user_data.get('loan_amnt', 0)
-    input_df['term'] = user_data.get('term', 36)
-    input_df['grade'] = user_data.get('grade', 0)
-    input_df['annual_inc'] = user_data.get('annual_inc', 0)
-    input_df['fico_score'] = user_data.get('fico_score', 0)
-    
-    purpose_col = f"purpose_{user_data.get('purpose', 'other')}"
-    if purpose_col in input_df.columns:
-        input_df[purpose_col] = 1
-        
-    predicted_rate = interest_rate_model.predict(input_df)[0]
+    except Exception as e:
+        print("predict() error:", e)
+        return jsonify({"error": str(e)}), 500
 
-    return jsonify({
-        'status': 'Approved',
-        'approval_reason': approval_status,
-        'predicted_interest_rate': round(predicted_rate, 2)
-    })
 
-# --- Home route ---
-@app.route('/')
+@app.route("/")
 def home():
     return "Loan Prediction API is running!"
 
-# --- Run app ---
-if __name__ == '__main__':
+if __name__ == "__main__":
     app.run(debug=True)
